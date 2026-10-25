@@ -31,3 +31,21 @@ def test_generated_project_rejects_unsafe_paths(tmp_path, path):
     with pytest.raises(ValueError):
         write_project_files(tmp_path / "run", manifest(path))
     assert not (tmp_path / "run").exists()
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "sk-proj-abcdefghijklmnopqrstuvwxyz123456",
+        "ghp_abcdefghijklmnopqrstuvwxyz123456",
+        "github_pat_abcdefghijklmnopqrstuvwxyz123456",
+        "AKIAABCDEFGHIJKLMNOP",
+        "-----BEGIN PRIVATE KEY-----",
+    ],
+)
+def test_generated_project_rejects_known_secret_formats(tmp_path, secret):
+    project = manifest()
+    project.files[1].content = f"credential = {secret}"
+    with pytest.raises(ValueError, match="possible secret"):
+        write_project_files(tmp_path / "run", project)
+    assert not (tmp_path / "run").exists()

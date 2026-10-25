@@ -18,6 +18,13 @@ _WINDOWS_DEVICES = {
     *(f"com{i}" for i in range(1, 10)),
     *(f"lpt{i}" for i in range(1, 10)),
 }
+_SECRET_PATTERNS = (
+    re.compile(r"sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{16,}"),
+    re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+)
 
 
 def safe_relative_path(raw: str) -> PurePosixPath:
@@ -47,6 +54,8 @@ def write_project_files(root: Path, project: GeneratedProject) -> list[Path]:
     total_bytes = 0
     for item in project.files:
         path = safe_relative_path(item.path)
+        if any(pattern.search(item.content) for pattern in _SECRET_PATTERNS):
+            raise ValueError("Generated project contains a possible secret")
         key = item.path.lower()
         if key in seen:
             raise ValueError("Duplicate generated path")
