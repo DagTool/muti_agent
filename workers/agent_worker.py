@@ -21,6 +21,8 @@ from apps.api.app.services.workflow import enqueue_task
 from packages.communication.contracts import (
     TASK_DLQ,
     TASK_RESULTS,
+    TASKS_AI_DEVELOPER,
+    TASKS_AI_QA,
     TASKS_ARCHITECT,
     TASKS_DEVELOPER,
     TASKS_PM,
@@ -181,7 +183,12 @@ def main():
         "developer": TASKS_DEVELOPER,
         "qa": TASKS_QA,
     }
-    source.subscribe([topics[args.role]])
+    topic = (
+        {"developer": TASKS_AI_DEVELOPER, "qa": TASKS_AI_QA}.get(args.role, topics[args.role])
+        if mode == "openai"
+        else topics[args.role]
+    )
+    source.subscribe([topic])
     try:
         while True:
             msg = source.poll(1)

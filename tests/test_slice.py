@@ -23,7 +23,12 @@ from apps.api.app.db.base import (
     utcnow,
 )
 from apps.api.app.db.session import get_db
-from packages.communication.contracts import TASK_COMMANDS, TASK_RESULTS, EventEnvelope
+from packages.communication.contracts import (
+    TASK_COMMANDS,
+    TASK_RESULTS,
+    TASKS_AI_DEVELOPER,
+    EventEnvelope,
+)
 from packages.orchestration.graph import build_graph
 from workers import agent_worker, ai_worker, dispatcher_worker, outbox_worker, recovery_worker
 
@@ -454,6 +459,15 @@ def test_openai_workflow_with_stubbed_agent_outputs(environment, monkeypatch, tm
             event = EventEnvelope.model_validate(
                 db.scalar(select(OutboxEvent).where(OutboxEvent.event_key == task.id)).payload
             )
+        if role == "developer":
+            routed = []
+            monkeypatch.setattr(
+                dispatcher_worker,
+                "publish_sync",
+                lambda _, topic, key, payload: routed.append(topic),
+            )
+            dispatcher_worker.dispatch_payload(event.model_dump_json().encode(), object())
+            assert routed == [TASKS_AI_DEVELOPER]
         assert ai_worker.process_ai_event(event, role) is True
         assert ai_worker.process_ai_event(event, role) is False
 

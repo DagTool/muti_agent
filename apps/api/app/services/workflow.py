@@ -36,7 +36,11 @@ def enqueue_task(
         sender="orchestrator" if run else "api",
         recipient_role=role,
         attempt=1,
-        payload={"instructions": title, "acceptance_criteria": []},
+        payload={
+            "instructions": title,
+            "acceptance_criteria": [],
+            "mode": run.mode if run else "mock",
+        },
     )
     db.add(
         OutboxEvent(topic=TASK_COMMANDS, event_key=task.id, payload=event.model_dump(mode="json"))
@@ -71,7 +75,11 @@ def retry_task(db: Session, project: Project, task: Task) -> None:
         sender="orchestrator",
         recipient_role=task.role,
         attempt=task.attempt,
-        payload={"instructions": task.title, "acceptance_criteria": []},
+        payload={
+            "instructions": task.title,
+            "acceptance_criteria": [],
+            "mode": "openai" if task.run_id else "mock",
+        },
     )
     db.add(
         OutboxEvent(topic=TASK_COMMANDS, event_key=task.id, payload=event.model_dump(mode="json"))

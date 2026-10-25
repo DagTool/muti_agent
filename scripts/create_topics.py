@@ -5,6 +5,8 @@ from packages.communication.contracts import (
     TASK_COMMANDS,
     TASK_DLQ,
     TASK_RESULTS,
+    TASKS_AI_DEVELOPER,
+    TASKS_AI_QA,
     TASKS_ARCHITECT,
     TASKS_DEVELOPER,
     TASKS_PM,
@@ -22,6 +24,8 @@ def main():
             TASKS_ARCHITECT,
             TASKS_DEVELOPER,
             TASKS_QA,
+            TASKS_AI_DEVELOPER,
+            TASKS_AI_QA,
             TASK_RESULTS,
             TASK_DLQ,
         )

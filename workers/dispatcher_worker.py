@@ -6,6 +6,8 @@ from pydantic import ValidationError
 from packages.communication.contracts import (
     TASK_COMMANDS,
     TASK_DLQ,
+    TASKS_AI_DEVELOPER,
+    TASKS_AI_QA,
     TASKS_ARCHITECT,
     TASKS_DEVELOPER,
     TASKS_PM,
@@ -25,12 +27,16 @@ def dispatch_payload(payload: bytes, client) -> None:
         publish_sync(client, TASK_DLQ, "invalid-schema", {"error": "Invalid event schema"})
         return
     routes = {
-        "pm": TASKS_PM,
-        "architect": TASKS_ARCHITECT,
-        "developer": TASKS_DEVELOPER,
-        "qa": TASKS_QA,
+        ("openai", "pm"): TASKS_PM,
+        ("openai", "architect"): TASKS_ARCHITECT,
+        ("openai", "developer"): TASKS_AI_DEVELOPER,
+        ("openai", "qa"): TASKS_AI_QA,
+        ("mock", "developer"): TASKS_DEVELOPER,
+        ("mock", "qa"): TASKS_QA,
     }
-    if event.event_type != "task.execute.requested" or event.recipient_role not in routes:
+    mode = event.payload.get("mode", "mock")
+    route = routes.get((mode, event.recipient_role))
+    if event.event_type != "task.execute.requested" or route is None:
         publish_sync(
             client,
             TASK_DLQ,
@@ -38,9 +44,7 @@ def dispatch_payload(payload: bytes, client) -> None:
             {"event_id": str(event.event_id), "error": "Unsupported role or event type"},
         )
         return
-    publish_sync(
-        client, routes[event.recipient_role], str(event.task_id), event.model_dump(mode="json")
-    )
+    publish_sync(client, route, str(event.task_id), event.model_dump(mode="json"))
 
 
 def main():

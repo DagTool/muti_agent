@@ -83,7 +83,8 @@ Mỗi project có ngân sách token mặc định 500.000. API và dashboard ghi
 4. QA mock hoàn tất, lưu báo cáo và mở approval `handover`.
 5. Duyệt handover: run chuyển `completed`. Từ chối hoặc hủy run được lưu bền vững và audit.
 
-Các task còn được kiểm tra `event_id` để tránh xử lý lặp khi Kafka giao trùng. Recovery worker đưa task OpenAI bị treo quá 10 phút về hàng đợi với `attempt` mới, tối đa 3 lần. Kafka và PostgreSQL đang dùng cấu hình local một node; trước khi dùng cho người dùng thật cần auth/RBAC và ranh giới sandbox mạnh hơn.
+Các task còn được kiểm tra `event_id` để tránh xử lý lặp khi Kafka giao trùng. Recovery worker đưa task OpenAI bị treo quá 10 phút về hàng đợi với `attempt` mới, tối đa 3 lần. Kafka và PostgreSQL đang dùng cấu hình local một node; trước khi dùng cho người dùng thật cần OIDC, kiểm soát multi-tenant và ranh giới sandbox mạnh hơn.
+Dispatcher tách topic Developer/QA của chế độ mock và OpenAI theo `mode` cố định của từng run, để task cũ vẫn được xử lý đúng sau khi đổi cấu hình. Khi chuyển chế độ, cần khởi động worker tương ứng cho các run còn đang hoạt động.
 
 `python -m scripts.smoke_local` kiểm tra end-to-end toàn bộ luồng mock khi API và workers đang chạy. Dashboard hiển thị activity timeline từ audit log, artifacts, mã nguồn trong run và số token model đã dùng.
 
