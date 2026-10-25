@@ -1,14 +1,30 @@
 from confluent_kafka.admin import AdminClient, NewTopic
 
 from apps.api.app.core.config import get_settings
-from packages.communication.contracts import TASK_COMMANDS, TASK_DLQ, TASK_RESULTS, TASKS_DEVELOPER
+from packages.communication.contracts import (
+    TASK_COMMANDS,
+    TASK_DLQ,
+    TASK_RESULTS,
+    TASKS_ARCHITECT,
+    TASKS_DEVELOPER,
+    TASKS_PM,
+    TASKS_QA,
+)
 
 
 def main():
     admin = AdminClient({"bootstrap.servers": get_settings().kafka_bootstrap_servers})
     topics = [
         NewTopic(name, num_partitions=1, replication_factor=1)
-        for name in (TASK_COMMANDS, TASKS_DEVELOPER, TASK_RESULTS, TASK_DLQ)
+        for name in (
+            TASK_COMMANDS,
+            TASKS_PM,
+            TASKS_ARCHITECT,
+            TASKS_DEVELOPER,
+            TASKS_QA,
+            TASK_RESULTS,
+            TASK_DLQ,
+        )
     ]
     for name, future in admin.create_topics(topics).items():
         try:

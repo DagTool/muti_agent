@@ -15,9 +15,7 @@ LANGGRAPH_TABLES = {"checkpoint_migrations", "checkpoints", "checkpoint_blobs", 
 
 
 def include_name(name, type_, parent_names):
-    if type_ == "table" and name in LANGGRAPH_TABLES:
-        return False
-    return True
+    return not (type_ == "table" and name in LANGGRAPH_TABLES)
 
 
 def run_migrations_offline():

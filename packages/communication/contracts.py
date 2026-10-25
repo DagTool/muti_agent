@@ -27,5 +27,8 @@ class EventEnvelope(BaseModel):
 
 TASK_COMMANDS = "agentforge.task.commands.v1"
 TASKS_DEVELOPER = "agentforge.tasks.developer.v1"
+TASKS_QA = "agentforge.tasks.qa.v1"
+TASKS_PM = "agentforge.tasks.pm.v1"
+TASKS_ARCHITECT = "agentforge.tasks.architect.v1"
 TASK_RESULTS = "agentforge.task.results.v1"
 TASK_DLQ = "agentforge.task.dlq.v1"
