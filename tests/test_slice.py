@@ -12,6 +12,7 @@ from apps.api.app import main
 from apps.api.app.db.base import (
     ApiToken,
     Approval,
+    AuditLog,
     Base,
     OutboxEvent,
     ProcessedEvent,
@@ -52,6 +53,7 @@ def environment(tmp_path, monkeypatch):
 
     main.app.dependency_overrides[get_db] = db_override
     monkeypatch.setattr(main, "get_settings", lambda: Settings())
+    monkeypatch.setattr(main, "new_session", sessions)
     monkeypatch.setattr(agent_worker, "new_session", sessions)
     monkeypatch.setattr(ai_worker, "new_session", sessions)
     monkeypatch.setattr(outbox_worker, "new_session", sessions)
@@ -59,6 +61,44 @@ def environment(tmp_path, monkeypatch):
     yield TestClient(main.app), sessions
     main.app.dependency_overrides.clear()
     engine.dispose()
+
+
+def test_project_event_stream_is_scoped_and_requires_auth(environment):
+    client, sessions = environment
+    with sessions.begin() as db:
+        own = Project(workspace_id="ws", name="Own", description="", request_key="own")
+        other = Project(workspace_id="other", name="Other", description="", request_key="other")
+        db.add_all([own, other])
+        db.flush()
+        db.add_all(
+            [
+                AuditLog(
+                    workspace_id="ws",
+                    project_id=own.id,
+                    action="test.own",
+                    resource_id=own.id,
+                    correlation_id=str(uuid4()),
+                ),
+                AuditLog(
+                    workspace_id="other",
+                    project_id=other.id,
+                    action="test.other",
+                    resource_id=other.id,
+                    correlation_id=str(uuid4()),
+                ),
+            ]
+        )
+        own_id, other_id = own.id, other.id
+    assert main.activity_revision(own_id, "ws") == 1
+    assert main.activity_revision(own_id, "other") == 0
+    assert client.get(f"/api/v1/projects/{own_id}/events").status_code == 401
+    assert (
+        client.get(
+            f"/api/v1/projects/{other_id}/events",
+            headers={"X-API-Key": "test-secret"},
+        ).status_code
+        == 404
+    )
 
 
 def test_api_outbox_worker_and_duplicate(environment):

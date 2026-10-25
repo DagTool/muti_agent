@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { api, type Activity, type Actor, type Approval, type Artifact, type GeneratedFile, type ModelUsage, type Project, type Requirement, type Run, type Task } from './api'
+import { api, watchProject, type Activity, type Actor, type Approval, type Artifact, type GeneratedFile, type ModelUsage, type Project, type Requirement, type Run, type Task } from './api'
 
 const statusNames: Record<string, string> = {
   active: 'Đang hoạt động', ready: 'Sẵn sàng', running: 'Đang chạy', completed: 'Hoàn tất',
@@ -66,9 +66,13 @@ function App() {
 
   useEffect(() => {
     void refresh()
-    const timer = window.setInterval(() => { void refresh() }, 4000)
-    return () => window.clearInterval(timer)
-  }, [refresh])
+    const timer = window.setInterval(() => { void refresh() }, 30000)
+    const controller = new AbortController()
+    if (apiKey && projectId) {
+      void watchProject(apiKey, projectId, () => { void refresh() }, controller.signal)
+    }
+    return () => { window.clearInterval(timer); controller.abort() }
+  }, [apiKey, projectId, refresh])
 
   useEffect(() => { setPreview(null); setFiles([]) }, [projectId])
 

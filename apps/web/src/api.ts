@@ -25,6 +25,36 @@ export type Actor = { user_id: string | null; role: 'owner' | 'member' | 'viewer
 
 const baseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
 
+export async function watchProject(
+  key: string, projectId: string, onChange: () => void, signal: AbortSignal,
+): Promise<void> {
+  while (!signal.aborted) {
+    try {
+      const response = await fetch(`${baseUrl}/api/v1/projects/${projectId}/events`, {
+        headers: { 'X-API-Key': key }, signal,
+      })
+      if (response.status === 401 || response.status === 403 || response.status === 404) return
+      if (!response.ok || !response.body) throw new Error(`Event stream HTTP ${response.status}`)
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (!signal.aborted) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const frames = buffer.split('\n\n')
+        buffer = frames.pop() ?? ''
+        for (const frame of frames) {
+          if (frame.startsWith('event: change\n')) onChange()
+        }
+      }
+    } catch {
+      if (signal.aborted) return
+    }
+    if (!signal.aborted) await new Promise(resolve => window.setTimeout(resolve, 2000))
+  }
+}
+
 async function request<T>(key: string, path: string, method = 'GET', body?: object): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
     method,

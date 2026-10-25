@@ -1,4 +1,6 @@
+import asyncio
 import hashlib
+import json
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -9,6 +11,7 @@ from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -30,7 +33,7 @@ from apps.api.app.db.base import (
     WorkspaceMembership,
     utcnow,
 )
-from apps.api.app.db.session import get_db
+from apps.api.app.db.session import get_db, new_session
 from apps.api.app.services.workflow import enqueue_task, retry_task
 from packages.communication.contracts import TASK_COMMANDS, EventEnvelope
 from packages.execution.project_files import safe_relative_path
@@ -1020,6 +1023,48 @@ def list_activity(project_id: UUID, db: DbSession):
         .order_by(AuditLog.created_at.desc())
         .limit(100)
     ).all()
+
+
+def activity_revision(project_id: str, workspace_id: str) -> int:
+    with new_session() as db:
+        return (
+            db.scalar(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.project_id == project_id,
+                    AuditLog.workspace_id == workspace_id,
+                )
+            )
+            or 0
+        )
+
+
+@app.get("/api/v1/projects/{project_id}/events")
+async def stream_project_events(
+    project_id: UUID,
+    x_api_key: str | None = Header(default=None),
+):
+    with new_session() as db:
+        actor = require_api_key(db, x_api_key)
+        project_id_value = get_project_or_404(str(project_id), db).id
+        workspace_id = actor.workspace_id
+
+    async def events():
+        revision = await asyncio.to_thread(activity_revision, project_id_value, workspace_id)
+        yield f"event: ready\ndata: {json.dumps({'revision': revision})}\n\n"
+        for _ in range(30):
+            await asyncio.sleep(2)
+            current = await asyncio.to_thread(activity_revision, project_id_value, workspace_id)
+            if current != revision:
+                revision = current
+                yield f"event: change\ndata: {json.dumps({'revision': revision})}\n\n"
+            else:
+                yield ": keepalive\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get(
