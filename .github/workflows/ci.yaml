@@ -5,6 +5,23 @@ on:
 jobs:
   python:
     runs-on: ubuntu-latest
+    env:
+      AGENTFORGE_DATABASE_URL: postgresql+psycopg://agentforge:agentforge_ci@localhost:5432/agentforge_ci
+      AGENTFORGE_WORKSPACE_ID: local-dev
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: agentforge_ci
+          POSTGRES_USER: agentforge
+          POSTGRES_PASSWORD: agentforge_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentforge -d agentforge_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -14,8 +31,9 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest -q
-      - run: AGENTFORGE_DATABASE_URL=sqlite:///./ci-migration.db alembic upgrade head
-      - run: AGENTFORGE_DATABASE_URL=sqlite:///./ci-migration.db alembic downgrade base
+      - run: alembic upgrade head
+      - run: alembic check
+      - run: alembic downgrade base
   web:
     runs-on: ubuntu-latest
     defaults:

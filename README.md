@@ -54,9 +54,10 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/projects/$($project.id)/tas
 ```powershell
 .venv\Scripts\python -m pytest
 .venv\Scripts\python -m scripts.smoke_ai_execution
+.venv\Scripts\python -m scripts.check_fresh_migration
 ```
 
-Unit tests dùng SQLite tạm thời. `smoke_ai_execution` cần Docker và kiểm tra đường đi sinh file mẫu → Git commit → QA sandbox, không gọi OpenAI API. `npm run build` kiểm tra TypeScript và frontend bundle. Chế độ mock chỉ mô phỏng kết quả; không gọi LLM hoặc tạo PR.
+Unit tests dùng SQLite tạm thời. `smoke_ai_execution` cần Docker và kiểm tra đường đi sinh file mẫu → Git commit → QA sandbox, không gọi OpenAI API. `check_fresh_migration` cần PostgreSQL local, tạo DB tạm riêng rồi kiểm tra upgrade/check/downgrade; DB tạm được xóa sau khi chạy. CI cũng kiểm tra migration trên PostgreSQL. `npm run build` kiểm tra TypeScript và frontend bundle. Chế độ mock chỉ mô phỏng kết quả; không gọi LLM hoặc tạo PR.
 
 ## Chế độ OpenAI
 
