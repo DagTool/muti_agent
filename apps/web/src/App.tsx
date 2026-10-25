@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { api, watchProject, type Activity, type Actor, type Approval, type Artifact, type GeneratedFile, type ModelUsage, type Project, type Requirement, type Run, type Task } from './api'
+import { api, watchProject, type Activity, type Actor, type Approval, type Artifact, type GeneratedFile, type Member, type ModelUsage, type Project, type Requirement, type Run, type Task, type Token } from './api'
 
 const statusNames: Record<string, string> = {
   active: 'Đang hoạt động', ready: 'Sẵn sàng', running: 'Đang chạy', completed: 'Hoàn tất',
@@ -30,6 +30,10 @@ function App() {
   const [error, setError] = useState('')
   const [connected, setConnected] = useState(false)
   const [actor, setActor] = useState<Actor | null>(null)
+  const [members, setMembers] = useState<Member[]>([])
+  const [memberTokens, setMemberTokens] = useState<Token[]>([])
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null)
+  const [issuedToken, setIssuedToken] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     if (!apiKey) { setConnected(false); setActor(null); return }
@@ -40,6 +44,7 @@ function App() {
       setProjects(projectList)
       setApprovals(approvalList)
       setActor(identity)
+      setMembers(identity.role === 'owner' ? await api.members(apiKey) : [])
       setConnected(true)
       setError('')
       if (projectId) {
@@ -60,6 +65,7 @@ function App() {
     } catch (cause) {
       setConnected(false)
       setActor(null)
+      setMembers([])
       setError(cause instanceof Error ? cause.message : 'Không tải được dữ liệu')
     }
   }, [apiKey, projectId])
@@ -75,6 +81,7 @@ function App() {
   }, [apiKey, projectId, refresh])
 
   useEffect(() => { setPreview(null); setFiles([]) }, [projectId])
+  useEffect(() => { setIssuedToken(null); setSelectedMemberId(null); setMemberTokens([]) }, [apiKey])
 
   async function perform(action: () => Promise<void>) {
     setBusy(true)
@@ -103,6 +110,32 @@ function App() {
     void perform(async () => {
       await api.createRequirement(apiKey, projectId, requirementText.trim())
       setRequirementText('')
+    })
+  }
+
+  function createMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    void perform(async () => {
+      const created = await api.createMember(apiKey, {
+        email: String(data.get('email')).trim(),
+        name: String(data.get('name')).trim(),
+        role: String(data.get('role')) as Member['role'],
+      })
+      setIssuedToken(created.api_token)
+      setSelectedMemberId(created.id)
+      setMemberTokens(await api.memberTokens(apiKey, created.id))
+      form.reset()
+    })
+  }
+
+  function selectMember(memberId: string) {
+    setSelectedMemberId(memberId)
+    setIssuedToken(null)
+    setMemberTokens([])
+    void api.memberTokens(apiKey, memberId).then(setMemberTokens).catch(cause => {
+      setError(cause instanceof Error ? cause.message : 'Không tải được token')
     })
   }
 
@@ -160,6 +193,36 @@ function App() {
 
           <div className="notice"><span className="notice-icon">i</span><div><strong>Chế độ chạy</strong><span>Mỗi run hiển thị chế độ mock hoặc OpenAI. Chế độ OpenAI tạo mã và QA kiểm thử trong Docker; kết quả cần được xem lại trước khi bàn giao.</span></div></div>
           {error && <div className="error" role="alert">{error}</div>}
+
+          {isOwner && <details className="panel member-panel">
+            <summary><span><span className="eyebrow">WORKSPACE ACCESS</span><strong>Thành viên và API token</strong></span><span className="count">{members.length}</span></summary>
+            <form className="member-form" onSubmit={createMember}>
+              <input name="email" type="email" placeholder="Email" aria-label="Email thành viên" required />
+              <input name="name" placeholder="Tên" aria-label="Tên thành viên" required />
+              <select name="role" aria-label="Vai trò"><option value="member">Member</option><option value="viewer">Viewer</option><option value="owner">Owner</option></select>
+              <button className="button secondary" disabled={busy}>Thêm thành viên</button>
+            </form>
+            <div className="member-list">{members.map(member => <button key={member.id} className={`member-item ${selectedMemberId === member.id ? 'active' : ''}`} onClick={() => selectMember(member.id)}>
+              <strong>{member.name}</strong><span>{member.email} · {member.role}</span>
+            </button>)}</div>
+            {selectedMemberId && <div className="token-panel">
+              <div className="token-heading"><strong>Token của {members.find(member => member.id === selectedMemberId)?.name ?? 'thành viên'}</strong>
+                <button className="button secondary" disabled={busy} onClick={() => void perform(async () => {
+                  const created = await api.createMemberToken(apiKey, selectedMemberId)
+                  setIssuedToken(created.api_token)
+                  setMemberTokens(await api.memberTokens(apiKey, selectedMemberId))
+                })}>Cấp token mới</button></div>
+              {issuedToken && <div className="issued-token"><span>Chỉ hiển thị một lần. Hãy sao chép và lưu an toàn.</span><code>{issuedToken}</code><button className="text-button" onClick={() => setIssuedToken(null)}>Ẩn token</button></div>}
+              {memberTokens.map(token => <div className="token-row" key={token.id}>
+                <span>#{shortId(token.id)} · hết hạn {new Date(token.expires_at).toLocaleDateString('vi-VN')} · {token.revoked_at ? 'đã thu hồi' : 'đang hiệu lực'}</span>
+                {!token.revoked_at && <button className="text-button" disabled={busy} onClick={() => void perform(async () => {
+                  await api.revokeToken(apiKey, token.id)
+                  setIssuedToken(null)
+                  setMemberTokens(await api.memberTokens(apiKey, selectedMemberId))
+                })}>Thu hồi</button>}
+              </div>)}
+            </div>}
+          </details>}
 
           {!selected ? (
             <section className="empty-state"><div className="empty-symbol">◇</div><h2>Chọn dự án để bắt đầu</h2><p>Chọn một dự án trong danh sách hoặc tạo dự án mới bằng biểu mẫu ở thanh điều hướng.</p></section>

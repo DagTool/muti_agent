@@ -245,6 +245,22 @@ def test_member_tokens_enforce_roles_and_can_be_revoked(environment):
     )
     assert client.get("/api/v1/projects", headers=viewer_headers).status_code == 401
 
+    renewed = client.post(f"/api/v1/members/{viewer['id']}/tokens", headers=owner)
+    assert renewed.status_code == 200, renewed.text
+    replacement = renewed.json()
+    assert replacement["api_token"] != viewer["api_token"]
+    tokens = client.get(f"/api/v1/members/{viewer['id']}/tokens", headers=owner).json()
+    assert {row["id"] for row in tokens} == {viewer["token_id"], replacement["id"]}
+    assert all("api_token" not in row for row in tokens)
+    assert (
+        client.get("/api/v1/projects", headers={"X-API-Key": replacement["api_token"]}).status_code
+        == 200
+    )
+    assert (
+        client.get(f"/api/v1/members/{viewer['id']}/tokens", headers=viewer_headers).status_code
+        == 401
+    )
+
 
 def test_contract_rejects_unknown_version():
     data = {

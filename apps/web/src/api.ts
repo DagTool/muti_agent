@@ -22,6 +22,10 @@ export type ModelUsage = {
 }
 export type GeneratedFile = { path: string; content: string }
 export type Actor = { user_id: string | null; role: 'owner' | 'member' | 'viewer'; workspace_id: string }
+export type Member = { id: string; email: string; name: string; role: 'owner' | 'member' | 'viewer' }
+export type Token = { id: string; created_at: string; expires_at: string; revoked_at: string | null }
+export type IssuedToken = Token & { api_token: string }
+export type CreatedMember = Member & { token_id: string; api_token: string; expires_at: string }
 
 const baseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
 
@@ -77,6 +81,12 @@ async function request<T>(key: string, path: string, method = 'GET', body?: obje
 
 export const api = {
   me: (key: string) => request<Actor>(key, '/api/v1/auth/me'),
+  members: (key: string) => request<Member[]>(key, '/api/v1/members'),
+  createMember: (key: string, body: { email: string; name: string; role: Member['role'] }) =>
+    request<CreatedMember>(key, '/api/v1/members', 'POST', body),
+  memberTokens: (key: string, memberId: string) => request<Token[]>(key, `/api/v1/members/${memberId}/tokens`),
+  createMemberToken: (key: string, memberId: string) => request<IssuedToken>(key, `/api/v1/members/${memberId}/tokens`, 'POST', {}),
+  revokeToken: (key: string, tokenId: string) => request<{ status: string }>(key, `/api/v1/tokens/${tokenId}/revoke`, 'POST', {}),
   projects: (key: string) => request<Project[]>(key, '/api/v1/projects'),
   createProject: (key: string, body: { name: string; description: string }) =>
     request<Project>(key, '/api/v1/projects', 'POST', body),

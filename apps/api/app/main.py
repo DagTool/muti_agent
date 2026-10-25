@@ -195,6 +195,17 @@ class MemberRoleUpdate(BaseModel):
     role: Literal["owner", "member", "viewer"]
 
 
+class TokenRead(BaseModel):
+    id: str
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+
+
+class TokenCreated(TokenRead):
+    api_token: str
+
+
 @dataclass(frozen=True)
 class Actor:
     user_id: str | None
@@ -287,14 +298,8 @@ def create_member(body: MemberCreate, db: DbSession):
         user_id=user.id,
         role=body.role,
     )
-    raw_token = secrets.token_urlsafe(32)
-    expires_at = utcnow() + timedelta(days=30)
-    token = ApiToken(
-        workspace_id=workspace_id,
-        user_id=user.id,
-        token_hash=hashlib.sha256(raw_token.encode("utf-8")).hexdigest(),
-        expires_at=expires_at,
-    )
+    token, raw_token = issue_token(workspace_id, user.id)
+    expires_at = token.expires_at
     db.add_all([membership, token])
     db.flush()
     db.add(
@@ -314,6 +319,74 @@ def create_member(body: MemberCreate, db: DbSession):
         token_id=token.id,
         api_token=raw_token,
         expires_at=expires_at,
+    )
+
+
+def issue_token(workspace_id: str, user_id: str) -> tuple[ApiToken, str]:
+    raw_token = secrets.token_urlsafe(32)
+    token = ApiToken(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        token_hash=hashlib.sha256(raw_token.encode("utf-8")).hexdigest(),
+        expires_at=utcnow() + timedelta(days=30),
+    )
+    return token, raw_token
+
+
+def get_membership_or_404(membership_id: str, db: Session) -> WorkspaceMembership:
+    membership = db.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.id == membership_id,
+            WorkspaceMembership.workspace_id == get_settings().workspace_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return membership
+
+
+@app.get(
+    "/api/v1/members/{membership_id}/tokens",
+    response_model=list[TokenRead],
+    dependencies=[Depends(require_owner)],
+)
+def list_member_tokens(membership_id: UUID, db: DbSession):
+    membership = get_membership_or_404(str(membership_id), db)
+    return db.scalars(
+        select(ApiToken)
+        .where(
+            ApiToken.workspace_id == membership.workspace_id,
+            ApiToken.user_id == membership.user_id,
+        )
+        .order_by(ApiToken.created_at.desc())
+    ).all()
+
+
+@app.post(
+    "/api/v1/members/{membership_id}/tokens",
+    response_model=TokenCreated,
+    dependencies=[Depends(require_owner)],
+)
+def create_member_token(membership_id: UUID, db: DbSession):
+    membership = get_membership_or_404(str(membership_id), db)
+    token, raw_token = issue_token(membership.workspace_id, membership.user_id)
+    db.add(token)
+    db.flush()
+    db.add(
+        AuditLog(
+            workspace_id=membership.workspace_id,
+            action="token.created",
+            resource_id=token.id,
+            correlation_id=str(uuid4()),
+        )
+    )
+    db.commit()
+    return TokenCreated(
+        id=token.id,
+        created_at=token.created_at,
+        expires_at=token.expires_at,
+        revoked_at=None,
+        api_token=raw_token,
     )
 
 

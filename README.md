@@ -37,7 +37,7 @@ npm run dev
 
 Dashboard: <http://127.0.0.1:5173/>. Nhập `AGENTFORGE_API_KEY` từ `.env` vào ô API key. Key chỉ nằm trong bộ nhớ tab, không lưu trong browser storage. API docs: <http://127.0.0.1:8000/docs>. Workspace mặc định được tạo bởi migration và có ID `local-dev`.
 
-`AGENTFORGE_API_KEY` là khóa bootstrap của owner. Owner có thể cấp token cá nhân qua `POST /api/v1/members` với `email`, `name`, `role` (`owner`, `member`, `viewer`). Token chỉ trả về một lần, lưu trong DB ở dạng SHA-256 và hết hạn sau 30 ngày. `viewer` chỉ đọc; `member` có thể tạo project/yêu cầu/run/task và hủy hoặc thử lại run; `owner` còn được duyệt approval, chỉnh ngân sách, đổi vai trò và thu hồi token. Các API quản lý nằm trong `/docs`. Đây là RBAC local, chưa có OIDC, email invitation hoặc đăng nhập bằng mật khẩu.
+`AGENTFORGE_API_KEY` là khóa bootstrap của owner. Owner có thể thêm thành viên trên dashboard hoặc qua `POST /api/v1/members` với `email`, `name`, `role` (`owner`, `member`, `viewer`). Có thể cấp token thay thế qua `POST /api/v1/members/{id}/tokens`, xem metadata token qua `GET` cùng đường dẫn, rồi thu hồi token cũ qua `POST /api/v1/tokens/{id}/revoke`. Giá trị token chỉ trả về một lần, lưu trong DB ở dạng SHA-256 và hết hạn sau 30 ngày. `viewer` chỉ đọc; `member` có thể tạo project/yêu cầu/run/task và hủy hoặc thử lại run; `owner` còn được duyệt approval, chỉnh ngân sách và quản trị thành viên. Đây là RBAC local, chưa có OIDC, email invitation hoặc đăng nhập bằng mật khẩu.
 
 LangGraph mock riêng: `python -m scripts.demo_graph` (in memory) hoặc `python -m scripts.demo_graph --postgres` (checkpoint trong PostgreSQL).
 
