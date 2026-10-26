@@ -1,17 +1,27 @@
-# Vision v0.1
+# AgentForge AI — Vision v0.2 (dự thảo, 26/10/2026)
 
-AgentForge AI giúp một người đưa yêu cầu phần mềm vào một workflow có thể theo dõi: từ project và backlog đến code, kiểm thử và bàn giao. Mỗi tác vụ phải có trạng thái bền vững, nguồn gốc, giới hạn quyền và điểm phê duyệt khi có rủi ro.
+## Vấn đề
 
-## Người dùng đầu tiên
+Một yêu cầu phần mềm thường bị tách thành nhiều cuộc trao đổi, nhánh mã và lần kiểm thử. Người giao việc khó biết quyết định nào đã được duyệt, mã nào đã được chạy, lỗi nào còn mở và chi phí AI đã dùng. AgentForge AI gom yêu cầu, quyết định, tác vụ, kết quả và bằng chứng kiểm thử vào một workflow có thể truy vết.
 
-- **Chủ dự án:** mô tả nhu cầu, duyệt phạm vi, xem tiến độ và kết quả.
-- **Người phát triển/reviewer:** kiểm tra PR, test evidence, logs và lỗi.
-- **Người vận hành:** xử lý backlog, retry, DLQ và sự cố.
+## Người dùng và hành trình
 
-## Giới hạn của checkout hiện tại
+- **Chủ dự án:** mô tả mục tiêu, duyệt phạm vi và điểm bàn giao, xem tiến độ, ngân sách và kết quả.
+- **Người phát triển/reviewer:** đọc tiêu chí chấp nhận, xem diff/PR, kiểm tra test và quyết định có nhận thay đổi hay không.
+- **Người vận hành:** theo dõi hàng đợi, xử lý task lỗi hoặc treo, kiểm tra audit và khôi phục sau sự cố.
 
-Checkout này là lát cắt nền tảng cho giai đoạn khởi động, **chưa có agent dùng LLM hoặc chạy code**. Worker chỉ trả kết quả giả. Các luồng approval, sandbox, Git PR, dashboard, auth người dùng và RBAC đầy đủ chưa triển khai.
+Hành trình chuẩn: tạo project và gắn repository → PM đề xuất PRD → chủ dự án duyệt scope → Architect đề xuất thiết kế → các agent triển khai theo dependency → QA kiểm tra trong sandbox → mở PR kèm báo cáo → chủ dự án duyệt staging/bàn giao. Một bước bị từ chối hoặc lỗi phải hiện rõ lý do và đường quay lại.
 
-## Demo đầu tiên
+## Nguyên tắc sản phẩm
 
-Tạo project và task developer; API ghi task và event vào PostgreSQL cùng giao dịch; outbox publisher gửi Kafka; dispatcher định tuyến theo role; worker mẫu cập nhật task, lưu audit và result event. Gửi lại cùng event không tạo lần hoàn thành thứ hai.
+1. PostgreSQL giữ trạng thái nghiệp vụ; Kafka chuyển công việc và có thể giao lặp. Mọi tác động nghiệp vụ cần idempotent.
+2. Agent chỉ dùng tool và quyền được cấp. Chạy mã sinh ra trong sandbox; không tự triển khai production.
+3. Có người duyệt scope, thay đổi nhạy cảm, staging và bàn giao. Agent không tự nâng ngân sách.
+4. Mỗi kết quả có nguồn gốc: yêu cầu, task, agent, phiên bản model/prompt, artifacts, test, PR và audit.
+5. Khi lỗi, hủy hoặc hết ngân sách, hệ thống dừng an toàn và giải thích được trạng thái.
+
+## Phạm vi và cách đo
+
+Phạm vi v1.0, phần hoãn lại và KPI dự kiến nằm trong [PRD](prd-v1.md). Hai dự án demo và 20 kịch bản chấp nhận là tiêu chí thử nghiệm; các KPI trong kế hoạch gốc chưa phải kết quả đã đo. Bản chạy hiện tại là prototype local với workflow mock và chế độ OpenAI tùy chọn; [README](../../README.md) ghi rõ những phần đã có và còn thiếu.
+
+**Quyết định cần chủ dự án xác nhận cho Gate W1:** người phê duyệt cuối, hai bài toán demo, giới hạn ngân sách mặc định và phạm vi repository được phép chỉnh sửa.
