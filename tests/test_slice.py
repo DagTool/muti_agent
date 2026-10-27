@@ -643,3 +643,61 @@ def test_openai_failed_task_can_resume_and_stale_task_is_recovered(environment, 
         assert task.attempt == 3 and task.status == "ready"
         events = db.scalars(select(OutboxEvent).where(OutboxEvent.event_key == task_id)).all()
         assert [EventEnvelope.model_validate(item.payload).attempt for item in events] == [1, 2, 3]
+
+
+def test_stale_ai_failure_does_not_block_new_attempt(environment, monkeypatch):
+    client, sessions = environment
+
+    class OpenAISettings:
+        api_key = "test-secret"
+        workspace_id = "ws"
+        agent_mode = "openai"
+
+    monkeypatch.setattr(main, "get_settings", lambda: OpenAISettings())
+    headers = {"X-API-Key": "test-secret", "Idempotency-Key": "stale-project"}
+    project_id = client.post("/api/v1/projects", json={"name": "Stale"}, headers=headers).json()[
+        "id"
+    ]
+    client.post(
+        f"/api/v1/projects/{project_id}/requirements",
+        json={"content": "Build a calculator."},
+        headers=headers,
+    )
+    headers["Idempotency-Key"] = "stale-run"
+    run_id = client.post(f"/api/v1/projects/{project_id}/runs", json={}, headers=headers).json()[
+        "id"
+    ]
+    with sessions() as db:
+        task = db.scalar(select(Task).where(Task.run_id == run_id))
+        task_id = task.id
+        event = EventEnvelope.model_validate(
+            db.scalar(select(OutboxEvent).where(OutboxEvent.event_key == task_id)).payload
+        )
+
+    def fail_after_retry(*_args):
+        with sessions.begin() as db:
+            task = db.get(Task, task_id)
+            task.attempt = 2
+            task.status = "running"
+        raise RuntimeError("old attempt failed after retry")
+
+    monkeypatch.setattr(ai_worker, "_perform", fail_after_retry)
+    assert ai_worker.process_ai_event(event, "pm") is True
+    with sessions() as db:
+        task = db.get(Task, task_id)
+        run = db.get(WorkflowRun, run_id)
+        assert task.attempt == 2
+        assert task.status == "running"
+        assert run.status == "running"
+        assert (
+            db.scalar(
+                select(AuditLog).where(
+                    AuditLog.resource_id == task_id, AuditLog.action == "task.failed"
+                )
+            )
+            is None
+        )
+        assert (
+            db.scalar(select(ProcessedEvent).where(ProcessedEvent.event_id == str(event.event_id)))
+            is not None
+        )
