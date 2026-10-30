@@ -1,0 +1,32 @@
+name: Bug report
+description: Báo lỗi có bước tái hiện và bằng chứng
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Bước tái hiện
+      description: Dùng dữ liệu mẫu không nhạy cảm; không dán token hoặc secret.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Kết quả mong đợi
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Kết quả thực tế và bằng chứng
+      description: Ghi phiên bản/commit, log đã loại secret và correlation ID nếu có.
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Mức độ ảnh hưởng
+      options: [Blocker, Critical, Major, Minor]
+    validations:
+      required: true

@@ -4,4 +4,9 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 *.md text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+.editorconfig text eol=lf
 .env.example text eol=lf

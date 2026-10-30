@@ -1,0 +1,31 @@
+name: Feature / backlog item
+description: Đề xuất hạng mục có tiêu chí chấp nhận rõ
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Vấn đề và người dùng
+      description: Ai gặp vấn đề gì, trong tình huống nào?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Kết quả và tiêu chí chấp nhận
+      description: Mô tả hành vi có thể kiểm chứng và mã UC/AC nếu có.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Phụ thuộc và rủi ro
+      description: Ghi mã backlog/risk, approval hoặc quyền cần thiết.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Mức ưu tiên đề xuất
+      options: [Must, Should, Could]
+    validations:
+      required: true
