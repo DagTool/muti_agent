@@ -196,7 +196,11 @@ def process_ai_event(event: EventEnvelope, role: str) -> bool:
         with new_session() as db:
             run = db.scalar(select(WorkflowRun).where(WorkflowRun.id == run_id).with_for_update())
             task = db.scalar(select(Task).where(Task.id == str(event.task_id)).with_for_update())
-            if run.status != "cancelled" and task.status == "running":
+            if (
+                run.status != "cancelled"
+                and task.status == "running"
+                and task.attempt == event.attempt
+            ):
                 task.status = "failed"
                 task.result = f"Agent failed: {type(exc).__name__}"
                 run.status = "blocked"
