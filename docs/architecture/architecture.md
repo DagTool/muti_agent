@@ -91,4 +91,4 @@ erDiagram
 4. Chính sách provider và dữ liệu được gửi tới model; secret scanning, sandbox isolation và approval trước hành động rủi ro.
 5. Tracing và evidence cho hai demo để chứng minh toàn bộ sequence trên staging.
 
-Tài liệu này cần owner/tech reviewer duyệt cùng threat model, test strategy và wireframes trước khi đánh dấu Gate W2.
+Tài liệu này cần owner/tech reviewer duyệt cùng [threat model](threat-model.md), [test strategy](../testing/test-strategy.md) và wireframes trước khi đánh dấu Gate W2.
