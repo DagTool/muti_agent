@@ -37,6 +37,7 @@ def test_generated_project_rejects_unsafe_paths(tmp_path, path):
     "secret",
     [
         "sk-proj-abcdefghijklmnopqrstuvwxyz123456",
+        "sk-abcdefghijklmnopqrstuvwxyz123456",
         "ghp_abcdefghijklmnopqrstuvwxyz123456",
         "github_pat_abcdefghijklmnopqrstuvwxyz123456",
         "AKIAABCDEFGHIJKLMNOP",
