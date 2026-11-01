@@ -19,7 +19,7 @@ _WINDOWS_DEVICES = {
     *(f"lpt{i}" for i in range(1, 10)),
 }
 _SECRET_PATTERNS = (
-    re.compile(r"sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{16,}"),
+    re.compile(r"sk-(?:(?:proj|svcacct|admin)-)?[A-Za-z0-9_-]{20,}"),
     re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
