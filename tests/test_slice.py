@@ -437,6 +437,56 @@ def test_run_stops_before_dispatch(environment, action):
         assert db.scalars(select(Task).where(Task.run_id == run_id)).all() == []
 
 
+def test_cancelling_run_marks_claimed_tasks_cancelled(environment):
+    client, sessions = environment
+    with sessions.begin() as db:
+        project = Project(workspace_id="ws", name="Cancel running", request_key="cancel-running")
+        db.add(project)
+        db.flush()
+        requirement = Requirement(project_id=project.id, version=1, content="Build a test API")
+        db.add(requirement)
+        db.flush()
+        run = WorkflowRun(
+            project_id=project.id,
+            requirement_id=requirement.id,
+            request_key="cancel-running",
+            mode="openai",
+            status="running",
+        )
+        db.add(run)
+        db.flush()
+        for status in ("completed", "running", "ready"):
+            db.add(
+                Task(
+                    project_id=project.id,
+                    run_id=run.id,
+                    title=f"Task {status}",
+                    role="developer",
+                    status=status,
+                    correlation_id=str(uuid4()),
+                    request_key=status,
+                )
+            )
+        run_id = run.id
+
+    headers = {"X-API-Key": "test-secret"}
+    response = client.post(f"/api/v1/runs/{run_id}/cancel", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+    with sessions() as db:
+        statuses = {task.request_key: task.status for task in db.scalars(select(Task)).all()}
+        assert statuses == {"completed": "completed", "running": "cancelled", "ready": "cancelled"}
+        assert (
+            len(db.scalars(select(AuditLog).where(AuditLog.action == "run.cancelled")).all()) == 1
+        )
+
+    assert client.post(f"/api/v1/runs/{run_id}/cancel", headers=headers).status_code == 200
+    with sessions() as db:
+        assert (
+            len(db.scalars(select(AuditLog).where(AuditLog.action == "run.cancelled")).all()) == 1
+        )
+
+
 def test_other_workspace_approval_is_hidden(environment):
     client, sessions = environment
     with sessions.begin() as db:

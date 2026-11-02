@@ -946,7 +946,9 @@ def cancel_run(run_id: UUID, db: DbSession):
         select(Approval).where(Approval.run_id == run.id, Approval.status == "pending")
     ):
         approval.status = "cancelled"
-    for task in db.scalars(select(Task).where(Task.run_id == run.id, Task.status == "ready")):
+    for task in db.scalars(
+        select(Task).where(Task.run_id == run.id, Task.status.in_(("ready", "running")))
+    ):
         task.status = "cancelled"
     project = get_project_or_404(run.project_id, db)
     db.add(
