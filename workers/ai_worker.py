@@ -2,8 +2,10 @@
 
 import logging
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event, Thread
 
 from sqlalchemy import select
 
@@ -19,6 +21,7 @@ from apps.api.app.db.base import (
     Requirement,
     Task,
     WorkflowRun,
+    utcnow,
 )
 from apps.api.app.db.session import new_session
 from apps.api.app.services.workflow import enqueue_task
@@ -30,6 +33,7 @@ from packages.execution.sandbox_manager import run_in_sandbox
 
 log = logging.getLogger(__name__)
 ROLES = {"pm", "architect", "developer", "qa"}
+HEARTBEAT_INTERVAL_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,47 @@ class WorkOutput:
 
 def _workspace(project_id: str, run_id: str) -> Path:
     return Path(get_settings().artifact_root).resolve() / project_id / run_id
+
+
+def heartbeat_task(task_id: str, run_id: str, attempt: int) -> bool:
+    """Refresh only the claim still owned by this running attempt."""
+    with new_session() as db:
+        run = db.scalar(select(WorkflowRun).where(WorkflowRun.id == run_id).with_for_update())
+        task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
+        if (
+            run is None
+            or task is None
+            or run.status != "running"
+            or task.status != "running"
+            or task.run_id != run_id
+            or task.attempt != attempt
+        ):
+            return False
+        task.updated_at = utcnow()
+        db.commit()
+        return True
+
+
+@contextmanager
+def keep_task_alive(task_id: str, run_id: str, attempt: int):
+    """Keep a slow model or sandbox call from being mistaken for a dead worker."""
+    stopped = Event()
+
+    def pulse():
+        while not stopped.wait(HEARTBEAT_INTERVAL_SECONDS):
+            try:
+                if not heartbeat_task(task_id, run_id, attempt):
+                    return
+            except Exception:
+                log.exception("AI task heartbeat failed")
+
+    thread = Thread(target=pulse, name=f"ai-heartbeat-{task_id}", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        thread.join()
 
 
 def _perform(
@@ -188,9 +233,10 @@ def process_ai_event(event: EventEnvelope, role: str) -> bool:
         db.commit()
 
     try:
-        if budget_exhausted:
-            raise RuntimeError("TokenBudgetExceeded")
-        output = _perform(role, project_id, run_id, requirement, prd, design)
+        with keep_task_alive(str(event.task_id), run_id, event.attempt):
+            if budget_exhausted:
+                raise RuntimeError("TokenBudgetExceeded")
+            output = _perform(role, project_id, run_id, requirement, prd, design)
     except Exception as exc:
         log.exception("AI task failed: %s", type(exc).__name__)
         with new_session() as db:

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from threading import Event
 from uuid import uuid4
 
 import pytest
@@ -693,6 +694,64 @@ def test_openai_failed_task_can_resume_and_stale_task_is_recovered(environment, 
         assert task.attempt == 3 and task.status == "ready"
         events = db.scalars(select(OutboxEvent).where(OutboxEvent.event_key == task_id)).all()
         assert [EventEnvelope.model_validate(item.payload).attempt for item in events] == [1, 2, 3]
+
+
+def test_ai_heartbeat_refreshes_only_the_active_attempt(environment):
+    _, sessions = environment
+    stale = utcnow() - timedelta(minutes=20)
+    with sessions.begin() as db:
+        project = Project(workspace_id="ws", name="Heartbeat", request_key="heartbeat")
+        db.add(project)
+        db.flush()
+        requirement = Requirement(project_id=project.id, version=1, content="Build an API")
+        db.add(requirement)
+        db.flush()
+        run = WorkflowRun(
+            project_id=project.id,
+            requirement_id=requirement.id,
+            request_key="heartbeat",
+            mode="openai",
+            status="running",
+        )
+        db.add(run)
+        db.flush()
+        task = Task(
+            project_id=project.id,
+            run_id=run.id,
+            title="Slow model call",
+            role="pm",
+            status="running",
+            attempt=2,
+            correlation_id=str(uuid4()),
+            request_key="heartbeat",
+            updated_at=stale,
+        )
+        db.add(task)
+        db.flush()
+        task_id, run_id = task.id, run.id
+
+    assert ai_worker.heartbeat_task(task_id, run_id, 2) is True
+    with sessions() as db:
+        refreshed = db.get(Task, task_id).updated_at
+        assert refreshed.replace(tzinfo=stale.tzinfo) > stale
+    assert recovery_worker.recover_stale_tasks(max_age_seconds=600) == 0
+    assert ai_worker.heartbeat_task(task_id, run_id, 1) is False
+    with sessions() as db:
+        assert db.get(Task, task_id).updated_at == refreshed
+
+    with sessions.begin() as db:
+        db.get(WorkflowRun, run_id).status = "cancelled"
+    assert ai_worker.heartbeat_task(task_id, run_id, 2) is False
+    with sessions() as db:
+        assert db.get(Task, task_id).updated_at == refreshed
+
+
+def test_ai_heartbeat_runs_during_work_and_stops_afterward(monkeypatch):
+    pulsed = Event()
+    monkeypatch.setattr(ai_worker, "HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(ai_worker, "heartbeat_task", lambda *_args: pulsed.set() or True)
+    with ai_worker.keep_task_alive("task", "run", 1):
+        assert pulsed.wait(timeout=1)
 
 
 def test_stale_ai_failure_does_not_block_new_attempt(environment, monkeypatch):
