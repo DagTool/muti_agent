@@ -13,8 +13,10 @@ from apps.api.app import main
 from apps.api.app.db.base import (
     ApiToken,
     Approval,
+    Artifact,
     AuditLog,
     Base,
+    ModelUsage,
     OutboxEvent,
     ProcessedEvent,
     Project,
@@ -810,3 +812,71 @@ def test_stale_ai_failure_does_not_block_new_attempt(environment, monkeypatch):
             db.scalar(select(ProcessedEvent).where(ProcessedEvent.event_id == str(event.event_id)))
             is not None
         )
+
+
+def test_stale_ai_success_discards_result_and_accounts_usage(environment, monkeypatch):
+    client, sessions = environment
+
+    class OpenAISettings:
+        api_key = "test-secret"
+        workspace_id = "ws"
+        agent_mode = "openai"
+
+    monkeypatch.setattr(main, "get_settings", lambda: OpenAISettings())
+    headers = {"X-API-Key": "test-secret", "Idempotency-Key": "late-project"}
+    project_id = client.post(
+        "/api/v1/projects", json={"name": "Late result"}, headers=headers
+    ).json()["id"]
+    client.post(
+        f"/api/v1/projects/{project_id}/requirements",
+        json={"content": "Build a calculator with tests."},
+        headers=headers,
+    )
+    headers["Idempotency-Key"] = "late-run"
+    run_id = client.post(f"/api/v1/projects/{project_id}/runs", json={}, headers=headers).json()[
+        "id"
+    ]
+    with sessions() as db:
+        task = db.scalar(select(Task).where(Task.run_id == run_id))
+        task_id = task.id
+        event = EventEnvelope.model_validate(
+            db.scalar(select(OutboxEvent).where(OutboxEvent.event_key == task_id)).payload
+        )
+
+    def complete_after_retry(*_args):
+        with sessions.begin() as db:
+            task = db.get(Task, task_id)
+            task.attempt = 2
+            task.status = "ready"
+        assert ai_worker.process_ai_event(event, "pm") is False
+        with sessions() as db:
+            assert (
+                db.scalar(
+                    select(ProcessedEvent).where(ProcessedEvent.event_id == str(event.event_id))
+                )
+                is None
+            )
+        return ai_worker.WorkOutput(
+            kind="prd",
+            content="Stale PRD",
+            summary="Old attempt finished",
+            input_tokens=12,
+            output_tokens=8,
+        )
+
+    monkeypatch.setattr(ai_worker, "_perform", complete_after_retry)
+    assert ai_worker.process_ai_event(event, "pm") is False
+    assert ai_worker.process_ai_event(event, "pm") is False
+    with sessions() as db:
+        task = db.get(Task, task_id)
+        assert task.attempt == 2 and task.status == "ready"
+        assert db.get(WorkflowRun, run_id).status == "running"
+        assert db.get(Project, project_id).tokens_used == 20
+        usage = db.scalars(select(ModelUsage).where(ModelUsage.task_id == task_id)).all()
+        assert len(usage) == 1 and usage[0].attempt == 1
+        assert db.scalars(select(Artifact).where(Artifact.task_id == task_id)).all() == []
+        assert db.scalars(select(Approval).where(Approval.run_id == run_id)).all() == []
+        discarded = db.scalars(
+            select(AuditLog).where(AuditLog.action == "task.stale_result_discarded")
+        ).all()
+        assert len(discarded) == 1

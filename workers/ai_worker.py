@@ -206,7 +206,6 @@ def process_ai_event(event: EventEnvelope, role: str) -> bool:
             or project is None
             or project.id != str(event.project_id)
             or project.workspace_id != event.workspace_id
-            or task.attempt != event.attempt
         ):
             raise ValueError("AI task/run/event mismatch")
         if db.scalar(
@@ -216,6 +215,10 @@ def process_ai_event(event: EventEnvelope, role: str) -> bool:
             )
         ):
             return False
+        if task.attempt > event.attempt:
+            return False
+        if task.attempt < event.attempt:
+            raise ValueError("AI task event is from a future attempt")
         if run.status == "cancelled":
             task.status = "cancelled"
             db.add(ProcessedEvent(consumer_name=consumer_name, event_id=str(event.event_id)))
@@ -267,8 +270,8 @@ def process_ai_event(event: EventEnvelope, role: str) -> bool:
         run = db.scalar(select(WorkflowRun).where(WorkflowRun.id == run_id).with_for_update())
         task = db.scalar(select(Task).where(Task.id == str(event.task_id)).with_for_update())
         project = db.scalar(select(Project).where(Project.id == project_id).with_for_update())
-        if task.attempt != event.attempt:
-            raise ValueError("AI task attempt changed during execution")
+        if task.attempt < event.attempt:
+            raise ValueError("AI task attempt moved backwards during execution")
         if output.input_tokens or output.output_tokens:
             db.add(
                 ModelUsage(
@@ -282,6 +285,19 @@ def process_ai_event(event: EventEnvelope, role: str) -> bool:
                 )
             )
             project.tokens_used += output.input_tokens + output.output_tokens
+        if task.attempt > event.attempt:
+            db.add(
+                AuditLog(
+                    workspace_id=project.workspace_id,
+                    project_id=project.id,
+                    action="task.stale_result_discarded",
+                    resource_id=task.id,
+                    correlation_id=task.correlation_id,
+                )
+            )
+            db.add(ProcessedEvent(consumer_name=consumer_name, event_id=str(event.event_id)))
+            db.commit()
+            return False
         if run.status == "cancelled":
             task.status = "cancelled"
         elif run.status != "running" or task.status != "running":
