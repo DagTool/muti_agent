@@ -16,7 +16,7 @@
 | ID | Kịch bản | Tác động | Kiểm soát hiện có | Việc còn thiếu / bằng chứng cần có |
 |---|---|---|---|---|
 | T01 | Token bị lộ hoặc dùng sau thu hồi | Đọc/ghi nhầm workspace | Token lưu dạng hash, hết hạn 30 ngày, revoke, RBAC API | OIDC, vòng đời/rotation production, log không lộ key, test cross-workspace |
-| T02 | ID của project/run/approval khác workspace được đoán | Rò dữ liệu hoặc phê duyệt trái phép | Route chính lọc workspace; test approval/activity | Ma trận test đầy đủ mọi route và SSE |
+| T02 | ID của project/run/approval khác workspace được đoán | Rò dữ liệu hoặc phê duyệt trái phép | Route chính lọc workspace; test approval/activity và 17 route tài nguyên + SSE với ID khác workspace | Kiểm thử trong triển khai nhiều tenant và rà soát route mới khi bổ sung API |
 | T03 | Prompt injection trong requirement/repo/model output | Agent sửa file ngoài scope hoặc lộ secret | Output schema, kiểm tra path, chỉ QA chạy code trong sandbox | Allowlist tool/repo, chính sách dữ liệu gửi model, adversarial tests |
 | T04 | Code sinh thoát sandbox hoặc dùng Docker socket | Chiếm host, đọc secret, truy cập mạng | Container QA không mạng, giới hạn tài nguyên | Hardening runner cho tenant không tin cậy, test mount/symlink/network |
 | T05 | Event trùng hoặc worker cũ ghi sau retry | Sai state, artifact/Git lặp, chặn run sai | Outbox, processed-event, task lock/attempt; fix attempt cũ | Lease/heartbeat/fencing cho cả side effect, crash/rebalance tests |

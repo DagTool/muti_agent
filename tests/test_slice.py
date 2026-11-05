@@ -1,8 +1,10 @@
+import asyncio
 from datetime import timedelta
 from threading import Event
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import ValidationError
@@ -170,6 +172,100 @@ def test_auth_and_workspace_scope(environment):
         ).status_code
         == 404
     )
+
+
+def test_foreign_workspace_resources_are_hidden_across_api(environment):
+    client, sessions = environment
+    with sessions.begin() as db:
+        project = Project(workspace_id="other", name="Foreign", request_key="foreign")
+        db.add(project)
+        db.flush()
+        requirement = Requirement(project_id=project.id, version=1, content="Private scope")
+        db.add(requirement)
+        db.flush()
+        run = WorkflowRun(
+            project_id=project.id,
+            requirement_id=requirement.id,
+            request_key="foreign-run",
+            mode="openai",
+            status="blocked",
+        )
+        db.add(run)
+        db.flush()
+        task = Task(
+            project_id=project.id,
+            run_id=run.id,
+            title="Private task",
+            role="pm",
+            status="failed",
+            correlation_id=str(uuid4()),
+            request_key="foreign-task",
+        )
+        db.add(task)
+        db.flush()
+        db.add_all(
+            [
+                Artifact(
+                    project_id=project.id,
+                    run_id=run.id,
+                    task_id=task.id,
+                    kind="prd",
+                    content="Private artifact",
+                ),
+                ModelUsage(
+                    project_id=project.id,
+                    run_id=run.id,
+                    task_id=task.id,
+                    attempt=1,
+                    model="test-model",
+                    input_tokens=1,
+                    output_tokens=1,
+                ),
+                AuditLog(
+                    workspace_id="other",
+                    project_id=project.id,
+                    action="private.action",
+                    resource_id=run.id,
+                    correlation_id=str(uuid4()),
+                ),
+            ]
+        )
+        project_id, run_id, task_id = project.id, run.id, task.id
+
+    project_url = f"/api/v1/projects/{project_id}"
+    run_url = f"/api/v1/runs/{run_id}"
+    headers = {"X-API-Key": "test-secret", "Idempotency-Key": "foreign-check"}
+    requests = [
+        ("get", project_url, None),
+        ("post", f"{project_url}/budget", {"token_budget": 600000}),
+        ("post", f"{project_url}/tasks", {"title": "Leak?"}),
+        ("get", f"{project_url}/tasks", None),
+        ("get", f"/api/v1/tasks/{task_id}", None),
+        ("post", f"{project_url}/requirements", {"content": "New private scope"}),
+        ("get", f"{project_url}/requirements", None),
+        ("post", f"{project_url}/runs", {}),
+        ("get", f"{project_url}/runs", None),
+        ("get", run_url, None),
+        ("get", f"{run_url}/files", None),
+        ("get", f"{run_url}/file?path=README.md", None),
+        ("post", f"{run_url}/cancel", None),
+        ("post", f"{run_url}/resume", None),
+        ("get", f"{project_url}/artifacts", None),
+        ("get", f"{project_url}/activity", None),
+        ("get", f"{project_url}/model-usage", None),
+    ]
+    for method, url, body in requests:
+        response = client.request(method, url, json=body, headers=headers)
+        assert response.status_code == 404, f"{method.upper()} {url}: {response.text}"
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(main.stream_project_events(UUID(project_id), x_api_key="test-secret"))
+    assert error.value.status_code == 404
+    with sessions() as db:
+        assert db.get(Project, project_id).token_budget == 500000
+        assert db.get(WorkflowRun, run_id).status == "blocked"
+        assert db.get(Task, task_id).status == "failed"
+        assert len(db.scalars(select(Task).where(Task.project_id == project_id)).all()) == 1
 
 
 def test_member_tokens_enforce_roles_and_can_be_revoked(environment):
