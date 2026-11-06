@@ -623,10 +623,12 @@ def test_openai_workflow_with_stubbed_agent_outputs(environment, monkeypatch, tm
         api_key = "test-secret"
         workspace_id = "ws"
         agent_mode = "openai"
+        openai_model = "test-model"
 
     OpenAISettings.artifact_root = str(tmp_path / "generated")
 
     monkeypatch.setattr(main, "get_settings", lambda: OpenAISettings())
+    monkeypatch.setattr(ai_worker, "get_settings", lambda: OpenAISettings())
     headers = {"X-API-Key": "test-secret", "Idempotency-Key": "openai-project"}
     project_id = client.post("/api/v1/projects", json={"name": "AI demo"}, headers=headers).json()[
         "id"
@@ -643,6 +645,10 @@ def test_openai_workflow_with_stubbed_agent_outputs(environment, monkeypatch, tm
     run_id = run["id"]
 
     def fake_perform(role, *_args):
+        if role == "developer":
+            stage = tmp_path / "generated" / project_id / f".{run_id}.attempt-{_args[-1]}"
+            stage.mkdir(parents=True)
+            (stage / "README.md").write_text("# Generated")
         return ai_worker.WorkOutput(
             kind={
                 "pm": "prd",
@@ -710,8 +716,7 @@ def test_openai_workflow_with_stubbed_agent_outputs(environment, monkeypatch, tm
     )
     assert client.get(f"/api/v1/runs/{run_id}", headers=headers).json()["status"] == "completed"
     root = tmp_path / "generated" / project_id / run_id
-    root.mkdir(parents=True)
-    (root / "README.md").write_text("# Generated")
+    assert (root / "README.md").read_text() == "# Generated"
     assert client.get(f"/api/v1/runs/{run_id}/files", headers=headers).json() == ["README.md"]
     assert (
         client.get(
