@@ -3,7 +3,7 @@
 import logging
 import re
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import Event, Thread
 
@@ -50,6 +50,20 @@ def _workspace(project_id: str, run_id: str) -> Path:
     return Path(get_settings().artifact_root).resolve() / project_id / run_id
 
 
+def _attempt_workspace(project_id: str, run_id: str, attempt: int) -> Path:
+    root = _workspace(project_id, run_id)
+    return root.with_name(f".{run_id}.attempt-{attempt}")
+
+
+def _publish_project(project_id: str, run_id: str, attempt: int) -> None:
+    """Expose generated files only while the matching DB attempt is locked."""
+    stage = _attempt_workspace(project_id, run_id, attempt)
+    root = _workspace(project_id, run_id)
+    if not stage.is_dir() or stage.is_symlink() or root.exists():
+        raise RuntimeError("Generated workspace cannot be published")
+    stage.rename(root)
+
+
 def heartbeat_task(task_id: str, run_id: str, attempt: int) -> bool:
     """Refresh only the claim still owned by this running attempt."""
     with new_session() as db:
@@ -92,7 +106,13 @@ def keep_task_alive(task_id: str, run_id: str, attempt: int):
 
 
 def _perform(
-    role: str, project_id: str, run_id: str, requirement: str, prd: str, design: str
+    role: str,
+    project_id: str,
+    run_id: str,
+    requirement: str,
+    prd: str,
+    design: str,
+    attempt: int,
 ) -> WorkOutput:
     model = get_settings().openai_model
     if role == "pm":
@@ -121,7 +141,7 @@ def _perform(
             response.output_tokens,
         )
     if role == "developer":
-        root = _workspace(project_id, run_id)
+        root = _attempt_workspace(project_id, run_id, attempt)
         if root.exists():
             paths = [
                 path
@@ -130,10 +150,12 @@ def _perform(
             ]
             if not paths or not (root / "README.md").is_file():
                 raise RuntimeError("Existing generated workspace is incomplete")
+            commit = commit_project(root, "AgentForge generated project")
             return WorkOutput(
                 "generated_project",
                 "# Recovered generated project\n\nFiles:\n"
-                + "\n".join(f"- {path.relative_to(root).as_posix()}" for path in paths),
+                + "\n".join(f"- {path.relative_to(root).as_posix()}" for path in paths)
+                + f"\n\nGit commit: `{commit}`",
                 "Recovered generated project after worker interruption",
             )
         project, usage = generate_project(
@@ -239,7 +261,7 @@ def process_ai_event(event: EventEnvelope, role: str) -> bool:
         with keep_task_alive(str(event.task_id), run_id, event.attempt):
             if budget_exhausted:
                 raise RuntimeError("TokenBudgetExceeded")
-            output = _perform(role, project_id, run_id, requirement, prd, design)
+            output = _perform(role, project_id, run_id, requirement, prd, design, event.attempt)
     except Exception as exc:
         log.exception("AI task failed: %s", type(exc).__name__)
         with new_session() as db:
@@ -303,6 +325,18 @@ def process_ai_event(event: EventEnvelope, role: str) -> bool:
         elif run.status != "running" or task.status != "running":
             raise ValueError("AI task changed during execution")
         else:
+            if role == "developer" and output.passed:
+                try:
+                    _publish_project(project_id, run_id, event.attempt)
+                except (OSError, RuntimeError):
+                    log.exception("Generated project publication failed")
+                    output = replace(
+                        output,
+                        kind="generation_error",
+                        content="Generated project could not be published",
+                        summary="Generated project publication failed",
+                        passed=False,
+                    )
             task.status = "completed" if output.passed else "failed"
             task.result = output.summary[:2000]
             db.add(
