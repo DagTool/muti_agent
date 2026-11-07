@@ -66,6 +66,9 @@ class Project(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(32), default="active")
     token_budget: Mapped[int] = mapped_column(Integer, default=500_000)
+    request_token_budget: Mapped[int] = mapped_column(
+        Integer, default=500_000, server_default="500000"
+    )
     tokens_used: Mapped[int] = mapped_column(Integer, default=0)
     request_key: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
