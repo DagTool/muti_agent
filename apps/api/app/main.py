@@ -523,7 +523,7 @@ def create_project(
         if (
             existing.name != body.name
             or existing.description != body.description
-            or existing.token_budget != body.token_budget
+            or existing.request_token_budget != body.token_budget
         ):
             raise HTTPException(
                 status_code=409, detail="Idempotency key reused with different body"
@@ -534,6 +534,7 @@ def create_project(
         name=body.name,
         description=body.description,
         token_budget=body.token_budget,
+        request_token_budget=body.token_budget,
         request_key=idempotency_key,
     )
     db.add(project)
@@ -550,7 +551,7 @@ def create_project(
             if (
                 existing.name != body.name
                 or existing.description != body.description
-                or existing.token_budget != body.token_budget
+                or existing.request_token_budget != body.token_budget
             ):
                 raise HTTPException(
                     status_code=409, detail="Idempotency key reused with different body"

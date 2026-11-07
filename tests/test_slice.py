@@ -156,6 +156,36 @@ def test_api_outbox_worker_and_duplicate(environment):
         )
 
 
+def test_project_create_replay_uses_original_budget_after_budget_update(environment):
+    client, sessions = environment
+    headers = {"X-API-Key": "test-secret", "Idempotency-Key": "budget-replay"}
+    body = {"name": "Replay budget", "token_budget": 120000}
+    created = client.post("/api/v1/projects", json=body, headers=headers)
+    assert created.status_code == 200
+    project_id = created.json()["id"]
+
+    updated = client.post(
+        f"/api/v1/projects/{project_id}/budget",
+        json={"token_budget": 200000},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    replay = client.post("/api/v1/projects", json=body, headers=headers)
+    assert replay.status_code == 200
+    assert replay.json()["id"] == project_id
+    assert replay.json()["token_budget"] == 200000
+    changed = client.post(
+        "/api/v1/projects",
+        json={"name": "Replay budget", "token_budget": 200000},
+        headers=headers,
+    )
+    assert changed.status_code == 409
+    with sessions() as db:
+        project = db.get(Project, project_id)
+        assert project.request_token_budget == 120000
+        assert len(db.scalars(select(Project).where(Project.workspace_id == "ws")).all()) == 1
+
+
 def test_auth_and_workspace_scope(environment):
     client, sessions = environment
     assert client.get("/api/v1/projects").status_code == 401
