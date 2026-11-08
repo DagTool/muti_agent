@@ -24,6 +24,7 @@ def main():
         "password": source.password,
         "dbname": "postgres",
         "autocommit": True,
+        "connect_timeout": 5,
     }
     env = os.environ.copy()
     env["AGENTFORGE_DATABASE_URL"] = source.set(database=database).render_as_string(

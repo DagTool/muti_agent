@@ -779,6 +779,63 @@ def test_openai_workflow_with_stubbed_agent_outputs(environment, monkeypatch, tm
     )
 
 
+def test_uncommitted_generated_files_are_hidden(environment, monkeypatch, tmp_path):
+    client, sessions = environment
+
+    class OpenAISettings:
+        api_key = "test-secret"
+        workspace_id = "ws"
+        agent_mode = "openai"
+        artifact_root = str(tmp_path / "generated")
+
+    monkeypatch.setattr(main, "get_settings", lambda: OpenAISettings())
+    with sessions.begin() as db:
+        project = Project(workspace_id="ws", name="Uncommitted", request_key="uncommitted")
+        db.add(project)
+        db.flush()
+        requirement = Requirement(project_id=project.id, version=1, content="Build an API")
+        db.add(requirement)
+        db.flush()
+        run = WorkflowRun(
+            project_id=project.id,
+            requirement_id=requirement.id,
+            request_key="uncommitted",
+            mode="openai",
+            status="running",
+        )
+        db.add(run)
+        db.flush()
+        task = Task(
+            project_id=project.id,
+            run_id=run.id,
+            title="Generate code",
+            role="developer",
+            status="running",
+            correlation_id=str(uuid4()),
+            request_key="uncommitted",
+        )
+        db.add(task)
+        db.flush()
+        project_id, run_id, task_id = project.id, run.id, task.id
+
+    root = tmp_path / "generated" / project_id / run_id
+    root.mkdir(parents=True)
+    (root / "README.md").write_text("# Orphaned publish")
+    headers = {"X-API-Key": "test-secret"}
+    assert client.get(f"/api/v1/runs/{run_id}/files", headers=headers).status_code == 404
+    assert (
+        client.get(
+            f"/api/v1/runs/{run_id}/file",
+            params={"path": "README.md"},
+            headers=headers,
+        ).status_code
+        == 404
+    )
+    with sessions.begin() as db:
+        db.get(Task, task_id).status = "completed"
+    assert client.get(f"/api/v1/runs/{run_id}/files", headers=headers).json() == ["README.md"]
+
+
 def test_openai_failed_task_can_resume_and_stale_task_is_recovered(environment, monkeypatch):
     client, sessions = environment
 

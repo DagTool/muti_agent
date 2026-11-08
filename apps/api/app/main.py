@@ -883,10 +883,20 @@ def get_run(run_id: UUID, db: DbSession):
     return get_run_or_404(str(run_id), db)
 
 
-def generated_root(run: WorkflowRun) -> Path:
+def generated_root(run: WorkflowRun, db: Session) -> Path:
     base = Path(get_settings().artifact_root).resolve()
     root = base / run.project_id / run.id
-    if run.mode != "openai" or not root.is_dir() or root.is_symlink():
+    developer_completed = db.scalar(
+        select(Task.id).where(
+            Task.run_id == run.id, Task.role == "developer", Task.status == "completed"
+        )
+    )
+    if (
+        run.mode != "openai"
+        or developer_completed is None
+        or not root.is_dir()
+        or root.is_symlink()
+    ):
         raise HTTPException(status_code=404, detail="Generated files not found")
     resolved = root.resolve(strict=True)
     if not resolved.is_relative_to(base):
@@ -900,7 +910,7 @@ def generated_root(run: WorkflowRun) -> Path:
     dependencies=[Depends(require_api_key)],
 )
 def list_generated_files(run_id: UUID, db: DbSession):
-    root = generated_root(get_run_or_404(str(run_id), db))
+    root = generated_root(get_run_or_404(str(run_id), db), db)
     files = []
     for file in root.rglob("*"):
         if not file.is_file() or file.is_symlink():
@@ -922,7 +932,7 @@ def list_generated_files(run_id: UUID, db: DbSession):
     dependencies=[Depends(require_api_key)],
 )
 def read_generated_file(run_id: UUID, path: str, db: DbSession):
-    root = generated_root(get_run_or_404(str(run_id), db))
+    root = generated_root(get_run_or_404(str(run_id), db), db)
     try:
         relative = safe_relative_path(path)
     except ValueError as exc:
