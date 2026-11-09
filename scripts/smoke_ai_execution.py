@@ -3,6 +3,7 @@
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
 
 from packages.agent_runtime.openai_adapter import GeneratedProject, ModelResult
@@ -17,15 +18,23 @@ def main():
         if path.is_file() and "__pycache__" not in path.parts
     ]
     project = GeneratedProject.model_validate({"summary": "Fixture calculator", "files": files})
-    with tempfile.TemporaryDirectory(prefix="agentforge-ai-smoke-") as temp:
-        ai_worker.get_settings = lambda: SimpleNamespace(artifact_root=temp, openai_model="fixture")
-        ai_worker.generate_project = lambda _prompt, _model: (
-            project,
-            ModelResult("Fixture calculator", 0, 0),
-        )
+    with (
+        tempfile.TemporaryDirectory(prefix="agentforge-ai-smoke-") as temp,
+        patch.object(
+            ai_worker,
+            "get_settings",
+            lambda: SimpleNamespace(artifact_root=temp, openai_model="fixture"),
+        ),
+        patch.object(
+            ai_worker,
+            "generate_project",
+            lambda _prompt, _model: (project, ModelResult("Fixture calculator", 0, 0)),
+        ),
+    ):
         project_id, run_id = str(uuid4()), str(uuid4())
-        developer = ai_worker._perform("developer", project_id, run_id, "calculator", "", "")
-        qa = ai_worker._perform("qa", project_id, run_id, "calculator", "", "")
+        developer = ai_worker._perform("developer", project_id, run_id, "calculator", "", "", 1)
+        ai_worker._publish_project(project_id, run_id, 1)
+        qa = ai_worker._perform("qa", project_id, run_id, "calculator", "", "", 1)
         if not qa.passed:
             raise RuntimeError(qa.content)
         print(f"Generated project and sandbox QA passed: {developer.summary}")
