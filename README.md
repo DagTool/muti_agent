@@ -1,4 +1,4 @@
-# AgentForge AI
+# AgentAI
 
 Nền tảng thử nghiệm cho kế hoạch trong [tài liệu gốc](AgentForge_AI_Ke_Hoach_Phat_Trien_Chi_Tiet.md). Checkout này có dashboard React với stream sự kiện SSE theo project, project/requirement/run/approval API, PostgreSQL outbox, Kafka dispatcher và workflow mock. Chế độ OpenAI tùy chọn đã có PM, Architect, Developer sinh một dự án Python nhỏ, kiểm tra một số định dạng secret phổ biến trước khi ghi file, và QA chạy kiểm thử trong sandbox Docker. API có RBAC local qua token `owner`/`member`/`viewer`. Đây vẫn chưa phải bản v1.0: chưa có đăng nhập OIDC, GitHub PR, staging, đo chi phí tiền tệ hay kiểm thử chấp nhận trên hai dự án mẫu.
 
